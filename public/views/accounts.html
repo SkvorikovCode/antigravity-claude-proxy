@@ -41,14 +41,14 @@
             </button>
 
             <!-- Import Button -->
-            <label class="btn btn-xs btn-outline border-space-border text-gray-400 hover:text-white transition-all gap-2 h-8 cursor-pointer"
+            <button class="btn btn-xs btn-outline border-space-border text-gray-400 hover:text-white transition-all gap-2 h-8"
+                @click="importPasteText = ''; document.getElementById('import_paste_modal').showModal()"
                 :title="$store.global.t('importAccounts') || 'Import Accounts'">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
                 <span x-text="$store.global.t('import') || 'Import'">Import</span>
-                <input type="file" accept=".json" class="hidden" @change="importAccounts($event)">
-            </label>
+            </button>
 
             <button class="btn btn-xs btn-outline border-space-border text-gray-400 hover:text-white transition-all gap-2 h-8"
                 @click="reloadAccounts()"
@@ -401,6 +401,40 @@
             </div>
         </div>
     </div>
+
+    <!-- Paste JSON Import Modal -->
+    <dialog id="import_paste_modal" class="modal backdrop-blur-sm">
+        <div class="modal-box max-w-2xl w-full bg-space-900 border border-space-border text-gray-300 shadow-2xl p-6">
+            <h3 class="font-bold text-lg text-white mb-2 flex items-center gap-2">
+                <svg class="w-5 h-5 text-neon-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span x-text="$store.global.t('importAccounts') || 'Import Accounts'">Import Accounts</span>
+            </h3>
+            <p class="text-xs text-gray-500 mb-3">
+                Paste Cockpit export JSON (single object, array, or <code class="text-neon-purple">{accounts:[...]}</code>). Fields: <code class="text-neon-purple">email</code> + <code class="text-neon-purple">refresh_token</code> (and optional <code class="text-neon-purple">project_id</code>).
+            </p>
+            <textarea
+                x-model="importPasteText"
+                class="w-full h-64 bg-space-950 border border-space-border rounded p-3 font-mono text-xs text-gray-200 focus:outline-none focus:border-neon-purple resize-y"
+                placeholder='[{"email":"...","refresh_token":"..."}]'
+                spellcheck="false"></textarea>
+            <div class="modal-action">
+                <button class="btn btn-ghost text-gray-400"
+                        onclick="document.getElementById('import_paste_modal').close()"
+                        x-text="$store.global.t('cancel') || 'Cancel'">Cancel</button>
+                <button class="btn bg-neon-purple hover:bg-purple-600 border-none text-white"
+                        @click="importAccountsFromText(importPasteText)"
+                        :disabled="!importPasteText.trim() || importing"
+                        :class="{ 'loading': importing }">
+                    <span x-text="$store.global.t('import') || 'Import'">Import</span>
+                </button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
 
     <!-- Delete Confirmation Modal -->
     <dialog id="delete_account_modal" class="modal">

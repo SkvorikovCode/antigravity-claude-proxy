@@ -11,6 +11,8 @@ window.Components.accountManager = () => ({
     toggling: false,
     deleting: false,
     reloading: false,
+    importing: false,
+    importPasteText: '',
     selectedAccountEmail: '',
     selectedAccountLimits: {},
 
@@ -454,19 +456,35 @@ window.Components.accountManager = () => ({
      * Import accounts from JSON file
      * @param {Event} event - file input change event
      */
-    async importAccounts(event) {
+    async importAccountsFromText(text) {
         const store = Alpine.store('global');
-        const file = event.target.files?.[0];
-        if (!file) return;
+        if (!text || !text.trim()) {
+            store.showToast('Nothing to import', 'error');
+            return;
+        }
 
+        this.importing = true;
         try {
-            const text = await file.text();
-            const importData = JSON.parse(text);
+            let importData;
+            try {
+                importData = JSON.parse(text);
+            } catch (e) {
+                throw new Error('Invalid JSON: ' + e.message);
+            }
 
-            // Support both plain array and wrapped format
-            const accounts = Array.isArray(importData) ? importData : (importData.accounts || []);
-            if (!Array.isArray(accounts) || accounts.length === 0) {
-                throw new Error('Invalid file format: expected accounts array');
+            // Support single object, array, or {accounts: [...]}
+            let accounts;
+            if (Array.isArray(importData)) {
+                accounts = importData;
+            } else if (importData && Array.isArray(importData.accounts)) {
+                accounts = importData.accounts;
+            } else if (importData && typeof importData === 'object') {
+                accounts = [importData];
+            } else {
+                throw new Error('Expected object, array, or {accounts:[...]}');
+            }
+            if (accounts.length === 0) {
+                throw new Error('Empty accounts list');
             }
 
             const { response, newPassword } = await window.utils.request(
@@ -483,20 +501,21 @@ window.Components.accountManager = () => ({
             const data = await response.json();
             if (data.status === 'ok') {
                 const { added, updated, failed } = data.results;
-                let msg = store.t('importSuccess') + ` ${added.length} added, ${updated.length} updated`;
+                let msg = (store.t('importSuccess') || 'Imported:') + ` ${added.length} added, ${updated.length} updated`;
                 if (failed.length > 0) {
                     msg += `, ${failed.length} failed`;
                 }
                 store.showToast(msg, failed.length > 0 ? 'info' : 'success');
+                this.importPasteText = '';
+                document.getElementById('import_paste_modal')?.close();
                 Alpine.store('data').fetchData();
             } else {
                 throw new Error(data.error || 'Import failed');
             }
         } catch (e) {
-            store.showToast(store.t('importFailed') + ': ' + e.message, 'error');
+            store.showToast((store.t('importFailed') || 'Import failed') + ': ' + e.message, 'error');
         } finally {
-            // Reset file input
-            event.target.value = '';
+            this.importing = false;
         }
     }
 });
