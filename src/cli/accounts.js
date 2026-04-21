@@ -138,8 +138,9 @@ function saveAccounts(accounts, settings = {}) {
         const config = {
             accounts: accounts.map(acc => ({
                 email: acc.email,
-                source: 'oauth',
+                source: acc.source || 'oauth',
                 refreshToken: acc.refreshToken,
+                apiKey: acc.apiKey,
                 projectId: acc.projectId,
                 addedAt: acc.addedAt || new Date().toISOString(),
                 lastUsed: acc.lastUsed || null,
@@ -428,6 +429,142 @@ async function clearAccounts(rl) {
 }
 
 /**
+ * Normalize a raw JSON record (Cockpit GeminiAccount / exported proxy entry / array)
+ * into the proxy's account shape.
+ */
+function normalizeImportedAccount(raw) {
+    if (!raw || typeof raw !== 'object') {
+        throw new Error('Entry is not an object');
+    }
+
+    const email = raw.email;
+    if (!email) throw new Error('Missing email');
+
+    const refreshToken = raw.refresh_token || raw.refreshToken;
+    const apiKey = raw.api_key || raw.apiKey;
+    const projectId = raw.project_id || raw.projectId;
+
+    if (!refreshToken && !apiKey) {
+        throw new Error('Missing refresh_token or api_key');
+    }
+
+    return {
+        email,
+        source: apiKey ? 'manual' : 'oauth',
+        refreshToken,
+        apiKey,
+        projectId,
+        addedAt: new Date().toISOString(),
+        lastUsed: null,
+        modelRateLimits: {}
+    };
+}
+
+/**
+ * Read JSON from file path or stdin.
+ */
+async function readJsonInput(filePath) {
+    if (filePath) {
+        return readFileSync(filePath, 'utf-8');
+    }
+    // Read from stdin
+    return await new Promise((resolve, reject) => {
+        let data = '';
+        stdin.setEncoding('utf-8');
+        stdin.on('data', chunk => { data += chunk; });
+        stdin.on('end', () => resolve(data));
+        stdin.on('error', reject);
+    });
+}
+
+/**
+ * Import accounts from a Cockpit-tools style JSON (single object or array).
+ */
+async function importAccountsFromJson(filePath, rl) {
+    console.log('\n=== Import Accounts from JSON ===\n');
+
+    let jsonText;
+    if (filePath) {
+        if (!existsSync(filePath)) {
+            console.error(`\n✗ File not found: ${filePath}`);
+            return;
+        }
+        console.log(`Reading: ${filePath}`);
+        jsonText = readFileSync(filePath, 'utf-8');
+    } else {
+        console.log('Paste JSON below, then press Ctrl+D (EOF) to finish:\n');
+        jsonText = await readJsonInput(null);
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonText);
+    } catch (err) {
+        console.error(`\n✗ Invalid JSON: ${err.message}`);
+        return;
+    }
+
+    // Accept: single object, array, or {accounts: [...]}
+    let entries;
+    if (Array.isArray(parsed)) {
+        entries = parsed;
+    } else if (parsed && Array.isArray(parsed.accounts)) {
+        entries = parsed.accounts;
+    } else if (parsed && typeof parsed === 'object') {
+        entries = [parsed];
+    } else {
+        console.error('\n✗ Unexpected JSON shape (expected object or array).');
+        return;
+    }
+
+    const existing = loadAccounts();
+    const byEmail = new Map(existing.map(a => [a.email, a]));
+    const added = [];
+    const updated = [];
+    const failed = [];
+
+    for (const entry of entries) {
+        try {
+            const acc = normalizeImportedAccount(entry);
+            const existed = byEmail.get(acc.email);
+            if (existed) {
+                // Merge: keep addedAt, update credentials
+                Object.assign(existed, {
+                    source: acc.source,
+                    refreshToken: acc.refreshToken,
+                    apiKey: acc.apiKey,
+                    projectId: acc.projectId || existed.projectId
+                });
+                updated.push(acc.email);
+            } else {
+                if (existing.length >= MAX_ACCOUNTS) {
+                    failed.push({ email: acc.email, reason: `MAX_ACCOUNTS (${MAX_ACCOUNTS}) reached` });
+                    continue;
+                }
+                existing.push(acc);
+                byEmail.set(acc.email, acc);
+                added.push(acc.email);
+            }
+        } catch (err) {
+            failed.push({ email: entry?.email || 'unknown', reason: err.message });
+        }
+    }
+
+    if (added.length === 0 && updated.length === 0) {
+        console.log('\nNothing imported.');
+    } else {
+        saveAccounts(existing);
+    }
+
+    console.log(`\n  Added:   ${added.length}${added.length ? ' (' + added.join(', ') + ')' : ''}`);
+    console.log(`  Updated: ${updated.length}${updated.length ? ' (' + updated.join(', ') + ')' : ''}`);
+    console.log(`  Failed:  ${failed.length}`);
+    for (const f of failed) {
+        console.log(`    - ${f.email}: ${f.reason}`);
+    }
+}
+
+/**
  * Verify accounts (test refresh tokens)
  */
 async function verifyAccounts() {
@@ -482,13 +619,22 @@ async function main() {
             case 'verify':
                 await verifyAccounts();
                 break;
+            case 'import': {
+                await ensureServerStopped();
+                // First non-flag arg after "import" is the file path
+                const filePath = args.slice(1).find(a => !a.startsWith('--'));
+                await importAccountsFromJson(filePath, rl);
+                break;
+            }
             case 'help':
                 console.log('\nUsage:');
-                console.log('  node src/cli/accounts.js add     Add new account(s)');
-                console.log('  node src/cli/accounts.js list    List all accounts');
-                console.log('  node src/cli/accounts.js verify  Verify account tokens');
-                console.log('  node src/cli/accounts.js clear   Remove all accounts');
-                console.log('  node src/cli/accounts.js help    Show this help');
+                console.log('  node src/cli/accounts.js add             Add new account(s)');
+                console.log('  node src/cli/accounts.js list            List all accounts');
+                console.log('  node src/cli/accounts.js verify          Verify account tokens');
+                console.log('  node src/cli/accounts.js clear           Remove all accounts');
+                console.log('  node src/cli/accounts.js import [file]   Import account(s) from JSON');
+                console.log('                                           (no file = read from stdin)');
+                console.log('  node src/cli/accounts.js help            Show this help');
                 console.log('\nOptions:');
                 console.log('  --no-browser    Manual authorization code input (for headless servers)');
                 break;

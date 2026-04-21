@@ -510,6 +510,7 @@ export function mountWebUI(app, dirname, accountManager) {
                     // Support both snake_case and camelCase
                     const refreshToken = acc.refresh_token || acc.refreshToken;
                     const apiKey = acc.api_key || acc.apiKey;
+                    const projectId = acc.project_id || acc.projectId;
 
                     // Must have at least one credential
                     if (!refreshToken && !apiKey) {
@@ -525,7 +526,8 @@ export function mountWebUI(app, dirname, accountManager) {
                         email: acc.email,
                         source: apiKey ? 'manual' : 'oauth',
                         refreshToken: refreshToken,
-                        apiKey: apiKey
+                        apiKey: apiKey,
+                        projectId: projectId
                     });
 
                     if (exists) {
