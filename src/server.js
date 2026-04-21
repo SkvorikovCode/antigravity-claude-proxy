@@ -160,6 +160,13 @@ function parseError(error) {
         } else {
             errorMessage = `RESOURCE_EXHAUSTED: You have exhausted your capacity on ${model}. Please wait for your quota to reset.`;
         }
+    } else if (error.message.includes('MODEL_DEPRECATED')) {
+        // Upstream told us the requested model is no longer available.
+        // The raw upstream message is already in the WebUI /logs; return a
+        // neutral message so end users don't see internal model names.
+        errorType = 'api_error';
+        statusCode = 503;
+        errorMessage = 'Upstream model temporarily unavailable. Please retry shortly.';
     } else if (error.message.includes('invalid_request_error') || error.message.includes('INVALID_ARGUMENT')) {
         errorType = 'invalid_request_error';
         statusCode = 400;

@@ -237,6 +237,25 @@ export function isEmptyResponseError(error) {
 }
 
 /**
+ * Check if an upstream error text indicates a deprecated/unavailable model.
+ * Antigravity responds with 400 when the proxy identifies as an older version
+ * that doesn't know the newer model, e.g.:
+ *   "Gemini 3 Pro is no longer available. Please switch to Gemini 3.1 Pro..."
+ * These messages leak internal model names — we should suppress them from
+ * the client and log full details to the WebUI /logs stream instead.
+ * @param {string} errorText - Raw upstream error body
+ * @returns {boolean}
+ */
+export function isModelDeprecatedError(errorText) {
+    if (!errorText || typeof errorText !== 'string') return false;
+    const msg = errorText.toLowerCase();
+    return (msg.includes('no longer available') && msg.includes('switch to')) ||
+        msg.includes('please switch to') ||
+        msg.includes('model is deprecated') ||
+        msg.includes('latest version of antigravity');
+}
+
+/**
  * Check if an error is a capacity exhausted error (model overload, not user quota)
  * This is different from quota exhaustion - capacity issues are temporary infrastructure
  * limits that should be retried on the SAME account with shorter delays
@@ -267,5 +286,6 @@ export default {
     isAuthError,
     isAccountForbiddenError,
     isEmptyResponseError,
-    isCapacityExhaustedError
+    isCapacityExhaustedError,
+    isModelDeprecatedError
 };

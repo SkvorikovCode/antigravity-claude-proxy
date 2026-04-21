@@ -18,7 +18,7 @@ import {
     MAX_CAPACITY_RETRIES,
     BACKOFF_BY_ERROR_TYPE
 } from '../constants.js';
-import { isRateLimitError, isAuthError, isEmptyResponseError, isAccountForbiddenError, AccountForbiddenError } from '../errors.js';
+import { isRateLimitError, isAuthError, isEmptyResponseError, isAccountForbiddenError, AccountForbiddenError, isModelDeprecatedError } from '../errors.js';
 import { formatDuration, sleep, isNetworkError, throttledFetch } from '../utils/helpers.js';
 import { logger } from '../utils/logger.js';
 import { parseResetTime } from './rate-limit-parser.js';
@@ -277,6 +277,12 @@ export async function* sendMessageStream(anthropicRequest, accountManager, fallb
                         // 400 errors are client errors - fail immediately, don't retry or switch accounts
                         // Examples: token limit exceeded, invalid schema, malformed request
                         if (response.status === 400) {
+                            // Upstream model-deprecation notice (e.g. "Gemini 3 Pro is no longer available")
+                            // must not leak to end users. Log full text to WebUI /logs, return generic error.
+                            if (isModelDeprecatedError(errorText)) {
+                                logger.error(`[CloudCode] Upstream model deprecated (400) for ${model} [${account.email}]: ${errorText}`);
+                                throw new Error(`MODEL_DEPRECATED: Upstream model unavailable — check WebUI logs for details.`);
+                            }
                             logger.error(`[CloudCode] Invalid request (400): ${errorText.substring(0, 200)}`);
                             throw new Error(`invalid_request_error: ${errorText}`);
                         }
@@ -404,6 +410,10 @@ export async function* sendMessageStream(anthropicRequest, accountManager, fallb
                     }
                     // 400 errors are client errors - re-throw immediately, don't retry
                     if (endpointError.message?.includes('400')) {
+                        throw endpointError;
+                    }
+                    // Model deprecated upstream - re-throw immediately, retrying won't help
+                    if (endpointError.message?.startsWith('MODEL_DEPRECATED:')) {
                         throw endpointError;
                     }
                     logger.warn(`[CloudCode] Stream error at ${endpoint}:`, endpointError.message);
