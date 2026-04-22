@@ -26,23 +26,38 @@ export async function loadAccounts(configPath = ACCOUNT_CONFIG_PATH) {
         const configData = await readFile(configPath, 'utf-8');
         const config = JSON.parse(configData);
 
-        const accounts = (config.accounts || []).map(acc => ({
-            ...acc,
-            lastUsed: acc.lastUsed || null,
-            enabled: acc.enabled !== false, // Default to true if not specified
-            // Reset invalid flag on startup - give accounts a fresh chance
-            // EXCEPT accounts with a verifyUrl — those need user intervention
-            isInvalid: acc.verifyUrl ? (acc.isInvalid || false) : false,
-            invalidReason: acc.verifyUrl ? (acc.invalidReason || null) : null,
-            verifyUrl: acc.verifyUrl || null,
-            modelRateLimits: acc.modelRateLimits || {},
-            // New fields for subscription and quota tracking
-            subscription: acc.subscription || { tier: 'unknown', projectId: null, detectedAt: null },
-            quota: acc.quota || { models: {}, lastChecked: null },
-            // Quota threshold settings (per-account and per-model overrides)
-            quotaThreshold: acc.quotaThreshold,  // undefined means use global
-            modelQuotaThresholds: acc.modelQuotaThresholds || {}
-        }));
+        // Preserve isInvalid across restarts for PERMANENT failures:
+        //   - accounts with a verifyUrl (captcha/ToS acknowledgement pending)
+        //   - accounts permanently banned by Google ToS violation — bringing
+        //     them back online triggers another ban on the first request and
+        //     burns reputation for the rest of the pool.
+        const isPermanentBan = (acc) => {
+            const reason = (acc.invalidReason || '').toLowerCase();
+            return reason.includes('terms of service') ||
+                reason.includes('banned') ||
+                reason.includes('revoked');
+        };
+        const accounts = (config.accounts || []).map(acc => {
+            const persistInvalid = !!acc.verifyUrl || isPermanentBan(acc);
+            return {
+                ...acc,
+                lastUsed: acc.lastUsed || null,
+                enabled: acc.enabled !== false, // Default to true if not specified
+                // Reset invalid flag on startup — give accounts a fresh chance
+                // EXCEPT accounts awaiting user intervention (verifyUrl) or
+                // permanently banned (ToS violation / token revoked).
+                isInvalid: persistInvalid ? (acc.isInvalid || false) : false,
+                invalidReason: persistInvalid ? (acc.invalidReason || null) : null,
+                verifyUrl: acc.verifyUrl || null,
+                modelRateLimits: acc.modelRateLimits || {},
+                // New fields for subscription and quota tracking
+                subscription: acc.subscription || { tier: 'unknown', projectId: null, detectedAt: null },
+                quota: acc.quota || { models: {}, lastChecked: null },
+                // Quota threshold settings (per-account and per-model overrides)
+                quotaThreshold: acc.quotaThreshold,  // undefined means use global
+                modelQuotaThresholds: acc.modelQuotaThresholds || {}
+            };
+        });
 
         const settings = config.settings || {};
         let activeIndex = config.activeIndex || 0;

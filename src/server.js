@@ -741,17 +741,12 @@ app.post('/v1/messages', async (req, res) => {
 
         const modelId = requestedModel;
 
-        // Validate model ID before processing
-        const { account: validationAccount } = accountManager.selectAccount();
-        if (validationAccount) {
-            const token = await accountManager.getTokenForAccount(validationAccount);
-            const projectId = validationAccount.subscription?.projectId || null;
-            const valid = await isValidModel(modelId, token, projectId);
-
-            if (!valid) {
-                throw new Error(`invalid_request_error: Invalid model: ${modelId}. Use /v1/models to see available models.`);
-            }
-        }
+        // NOTE: Previously did a pre-validation selectAccount() + isValidModel()
+        // here. Removed to save a second account selection per request —
+        // under sticky strategy it picked the same account as streaming (log
+        // noise), and isValidModel() makes a billed fetchAvailableModels()
+        // call on every 5-min cache miss. If the model is actually invalid
+        // the downstream streaming handler returns a proper 400 anyway.
 
         // Optimistic Retry: If ALL accounts are rate-limited for this model, reset them to force a fresh check.
         // If we have some available accounts, we try them first.

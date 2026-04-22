@@ -49,13 +49,24 @@ const DEFAULT_CONFIG = {
     rateLimitDedupWindowMs: 2000,  // 2 seconds - prevents concurrent retry storms
     maxConsecutiveFailures: 3,     // Before applying extended cooldown
     extendedCooldownMs: 60000,     // 1 minute extended cooldown
-    maxCapacityRetries: 5,         // Max retries for capacity exhaustion
+    // Each capacity retry re-sends the FULL ~16k prompt to Google on the same
+    // account — so 5 retries can silently burn up to 6× the input tokens of
+    // one visible request. On MODEL_CAPACITY_EXHAUSTED we'd rather fail fast
+    // and let the Rust gateway fall back to the next provider in the virtual
+    // chain (or return 503 to the client). 1 retry keeps a small safety net
+    // for transient blips without runaway token spend.
+    maxCapacityRetries: 1,         // Max retries for capacity exhaustion (was 5 — token bleed)
     switchAccountDelayMs: 5000,    // Delay before switching accounts on rate limit
     capacityBackoffTiersMs: [5000, 10000, 20000, 30000, 60000], // Progressive backoff tiers for capacity exhaustion
     modelMapping: {},
     // Account selection strategy configuration
     accountSelection: {
-        strategy: 'hybrid',           // 'sticky' | 'round-robin' | 'hybrid'
+        // 'sticky' is forced here (overriding upstream default 'hybrid') so that
+        // account-manager reload() calls — triggered on almost every WebUI edit
+        // (8+ call sites) — don't silently revert a CLI --strategy=sticky back
+        // to hybrid and re-enable the 3-account rotation that breaks Gemini
+        // implicit prompt caching (burning the 20k system prefix on each turn).
+        strategy: 'sticky',           // 'sticky' | 'round-robin' | 'hybrid'
         // Hybrid strategy tuning (optional - sensible defaults)
         healthScore: {
             initial: 70,              // Starting score for new accounts

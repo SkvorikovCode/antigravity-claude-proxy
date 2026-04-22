@@ -44,6 +44,7 @@ export class AccountManager {
     #initialized = false;
     #strategy = null;
     #strategyName = DEFAULT_STRATEGY;
+    #strategyOverrideSticky = null; // sticky copy of CLI/env override, survives reload()
 
     // Per-account caches
     #tokenCache = new Map(); // email -> { token, extractedAt }
@@ -64,6 +65,13 @@ export class AccountManager {
     async initialize(strategyOverride = null) {
         if (this.#initialized) return;
 
+        // Remember the CLI/env override so that reload() — invoked from WebUI
+        // on most account edits — doesn't lose it and silently revert to the
+        // config-file strategy (which defeats --strategy=sticky from CLI).
+        if (strategyOverride !== null && strategyOverride !== undefined) {
+            this.#strategyOverrideSticky = strategyOverride;
+        }
+
         const { accounts, settings, activeIndex } = await loadAccounts(this.#configPath);
 
         this.#accounts = accounts;
@@ -78,10 +86,16 @@ export class AccountManager {
             this.#tokenCache = tokenCache;
         }
 
-        // Determine strategy: CLI override > env var > config file > default
+        // Determine strategy: remembered CLI/env override (from first init) >
+        // fresh CLI override > env var > config file > current default.
+        // Keeping the remembered override means reload() preserves sticky.
         const configStrategy = config?.accountSelection?.strategy;
         const envStrategy = process.env.ACCOUNT_STRATEGY;
-        this.#strategyName = strategyOverride || envStrategy || configStrategy || this.#strategyName;
+        this.#strategyName = this.#strategyOverrideSticky
+            || strategyOverride
+            || envStrategy
+            || configStrategy
+            || this.#strategyName;
 
         // Create the strategy instance
         const strategyConfig = config?.accountSelection || {};

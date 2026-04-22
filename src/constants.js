@@ -192,7 +192,7 @@ export const MIN_SIGNATURE_LENGTH = 50; // Minimum valid thinking signature leng
 
 // Account selection strategies
 export const SELECTION_STRATEGIES = ['sticky', 'round-robin', 'hybrid'];
-export const DEFAULT_SELECTION_STRATEGY = 'hybrid';
+export const DEFAULT_SELECTION_STRATEGY = 'sticky';
 
 // Strategy display labels
 export const STRATEGY_LABELS = {
